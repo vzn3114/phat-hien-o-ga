@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phát Hiện Ổ Gà - Pothole Detection</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='styles.css') }}"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🚗 Phát Hiện Ổ Gà</h1>
+        <p>Pothole Detection System - Real-time Road Safety</p>
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="tab-nav">
+        <button class="tab-button active" onclick="switchTab('webcam')">
+          📷 Webcam Real-time
+        </button>
+        <button class="tab-button" onclick="switchTab('image')">
+          🖼️ Upload Ảnh
+        </button>
+        <button class="tab-button" onclick="switchTab('video')">
+          🎬 Upload Video
+        </button>
+      </div>
+
+      <div class="content">
+        <!-- WEBCAM TAB -->
+        <div id="webcam" class="tab-content active">
+          <div class="webcam-layout">
+            <div class="video-section">
+              <div class="alert-box" id="alertBox">
+                ⚠️ <strong>Cảnh báo!</strong> Phát hiện ổ gà phía trước!
+              </div>
+
+              <div class="video-container">
+                <div class="loading" id="loading">⏳ Đang tải video...</div>
+                <img
+                  id="frameDisplay"
+                  src=""
+                  alt="Video stream"
+                  style="display: none"
+                />
+              </div>
+
+              <div class="controls">
+                <button
+                  class="btn-start"
+                  id="startBtn"
+                  onclick="startDetection()"
+                >
+                  ▶️ BẬT CAMERA
+                </button>
+                <button
+                  class="btn-stop"
+                  id="stopBtn"
+                  onclick="stopDetection()"
+                  disabled
+                >
+                  ⏹️ TẮT CAMERA
+                </button>
+              </div>
+            </div>
+
+            <div class="sidebar">
+              <div class="panel">
+                <h2>📊 Trạng Thái</h2>
+                <div class="stat">
+                  <span class="stat-label">Hệ thống</span>
+                  <span class="stat-value">
+                    <span
+                      class="status-indicator status-inactive"
+                      id="statusIndicator"
+                    ></span>
+                    <span id="statusText">Chưa bật</span>
+                  </span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Khung hình</span>
+                  <span class="stat-value" id="frameCount">0</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Ổ gà phát hiện</span>
+                  <span class="stat-value" id="potholeCount">0</span>
+                </div>
+                <div class="stat">
+                  <span class="stat-label">Mô hình</span>
+                  <span class="stat-value" id="modelStatus">✓ Ready</span>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h2>⚙️ Cài Đặt</h2>
+                <div class="settings">
+                  <div class="setting-item">
+                    <label for="confidenceSlider">Độ tin cậy:</label>
+                    <input
+                      type="range"
+                      id="confidenceSlider"
+                      min="0.3"
+                      max="0.95"
+                      step="0.05"
+                      value="0.5"
+                      onchange="updateConfidence()"
+                    />
+                    <span id="confidenceValue">0.50</span>
+                  </div>
+
+                  <div class="setting-item">
+                    <label>Bật Detection:</label>
+                    <input
+                      type="checkbox"
+                      id="detectionToggle"
+                      checked
+                      onchange="updateDetectionEnabled()"
+                    />
+                  </div>
+
+                  <div class="setting-item">
+                    <label for="audioMode">🔊 Âm thanh:</label>
+                    <select id="audioMode" onchange="updateAudioMode()">
+                      <option value="beep">Beep (Mặc định)</option>
+                      <option value="mp3">MP3 (canhbao.mp3)</option>
+                      <option value="off">Tắt âm thanh</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h2>🎯 Phát Hiện Gần Đây</h2>
+                <div class="detection-list" id="detectionList">
+                  <div style="color: #999; text-align: center; padding: 20px">
+                    Chưa phát hiện
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- IMAGE UPLOAD TAB -->
+        <div id="image" class="tab-content">
+          <h2 style="color: #667eea; margin-bottom: 20px">
+            🖼️ Upload & Detect Ảnh
+          </h2>
+
+          <div
+            class="upload-area"
+            id="imageUploadArea"
+            onclick="document.getElementById('imageInput').click();"
+          >
+            <div style="font-size: 3em; margin-bottom: 10px">📤</div>
+            <h3 style="color: #667eea">Kéo thả ảnh hoặc nhấp để chọn</h3>
+            <p style="color: #999; margin-top: 10px">
+              Hỗ trợ: JPG, PNG, BMP, GIF, TIFF
+            </p>
+            <input
+              type="file"
+              id="imageInput"
+              accept="image/*"
+              onchange="handleImageUpload(event)"
+            />
+          </div>
+
+          <div class="upload-progress" id="imageProgress">
+            <div style="color: #667eea; margin-bottom: 10px">
+              ⏳ Đang tải lên...
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="imageProgressFill"></div>
+            </div>
+          </div>
+
+          <div id="imageResult"></div>
+        </div>
+
+        <!-- VIDEO UPLOAD TAB -->
+        <div id="video" class="tab-content">
+          <h2 style="color: #667eea; margin-bottom: 20px">
+            🎬 Upload & Detect Video
+          </h2>
+
+          <div
+            class="upload-area"
+            id="videoUploadArea"
+            onclick="document.getElementById('videoInput').click();"
+          >
+            <div style="font-size: 3em; margin-bottom: 10px">📤</div>
+            <h3 style="color: #667eea">Kéo thả video hoặc nhấp để chọn</h3>
+            <p style="color: #999; margin-top: 10px">
+              Hỗ trợ: MP4, AVI, MOV, MKV (Max 500MB)
+            </p>
+            <input
+              type="file"
+              id="videoInput"
+              accept="video/*"
+              onchange="handleVideoUpload(event)"
+            />
+          </div>
+
+          <div class="upload-progress" id="videoProgress">
+            <div style="color: #667eea; margin-bottom: 10px">
+              ⏳ Đang xử lý video...
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="videoProgressFill"></div>
+            </div>
+          </div>
+
+          <div id="videoResult"></div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>
+          💡 Tip: Điều chỉnh độ tin cậy để cải thiện độ chính xác | Upload
+          ảnh/video để test
+        </p>
+      </div>
+    </div>
+
+    <script>
+      let isRunning = false;
+      let frameUpdateInterval = null;
+      let statusCheckInterval = null;
+      let lastDetectionCount = 0;
+
+      // ==================== Tab Management ====================
+      function switchTab(tabName) {
+        const tabs = document.querySelectorAll(".tab-content");
+        tabs.forEach((tab) => tab.classList.remove("active"));
+
+        const buttons = document.querySelectorAll(".tab-button");
+        buttons.forEach((btn) => btn.classList.remove("active"));
+
+        document.getElementById(tabName).classList.add("active");
+        event.target.classList.add("active");
+      }
+
+      // ==================== Drag & Drop ====================
+      function setupDragDrop(area, inputId) {
+        area.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          area.classList.add("dragover");
+        });
+
+        area.addEventListener("dragleave", () => {
+          area.classList.remove("dragover");
+        });
+
+        area.addEventListener("drop", (e) => {
+          e.preventDefault();
+          area.classList.remove("dragover");
+          const files = e.dataTransfer.files;
+          if (files.length > 0) {
+            document.getElementById(inputId).files = files;
+            if (inputId === "imageInput") {
+              handleImageUpload({ target: { files: files } });
+            } else {
+              handleVideoUpload({ target: { files: files } });
+            }
+          }
+        });
+      }
+
+      setupDragDrop(document.getElementById("imageUploadArea"), "imageInput");
+      setupDragDrop(document.getElementById("videoUploadArea"), "videoInput");
+
+      // ==================== Image Upload ====================
+      async function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          document.getElementById("imageProgress").style.display = "block";
+          document.getElementById("imageProgressFill").style.width = "50%";
+
+          const response = await fetch("/api/detect/image", {
+            method: "POST",
+            body: formData,
+          });
+
+          document.getElementById("imageProgressFill").style.width = "100%";
+
+          if (!response.ok) {
+            const error = await response.json();
+            alert(`❌ Lỗi: ${error.message}`);
+            return;
+          }
+
+          const data = await response.json();
+          if (data.status === "success") {
+            displayImageResult(data);
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          alert("❌ Lỗi kết nối server");
+        } finally {
+          document.getElementById("imageProgress").style.display = "none";
+          document.getElementById("imageProgressFill").style.width = "0%";
+        }
+      }
+
+      function displayImageResult(data) {
+        const resultDiv = document.getElementById("imageResult");
+        let html = `
+          <div class="detection-result">
+            <img src="data:image/jpeg;base64,${data.frame}" alt="Detection Result" class="result-image" />
+            <div class="result-stats">
+              <div class="result-stat">
+                <div class="result-stat-value">${data.detection_count}</div>
+                <div class="result-stat-label">Ổ gà phát hiện</div>
+              </div>
+            </div>
+        `;
+
+        if (data.detections.length > 0) {
+          html += `
+            <div class="detection-boxes">
+              <h4>📍 Chi tiết phát hiện:</h4>
+              ${data.detections
+                .map(
+                  (det, idx) => `
+                <div class="box-item">
+                  <strong>#${idx + 1}</strong> - Confidence: ${(
+                    det.confidence * 100
+                  ).toFixed(1)}%
+                </div>
+              `
+                )
+                .join("")}
+            </div>
+          `;
+        }
+
+        html += `</div>`;
+        resultDiv.innerHTML = html;
+      }
+
+      // ==================== Video Upload ====================
+      async function handleVideoUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          document.getElementById("videoProgress").style.display = "block";
+          document.getElementById("videoProgressFill").style.width = "20%";
+
+          const response = await fetch("/api/detect/video", {
+            method: "POST",
+            body: formData,
+          });
+
+          document.getElementById("videoProgressFill").style.width = "100%";
+
+          if (!response.ok) {
+            const error = await response.json();
+            alert(`❌ Lỗi: ${error.message}`);
+            return;
+          }
+
+          const data = await response.json();
+          if (data.status === "success") {
+            displayVideoResult(data);
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          alert("❌ Lỗi kết nối server");
+        } finally {
+          document.getElementById("videoProgress").style.display = "none";
+          document.getElementById("videoProgressFill").style.width = "0%";
+        }
+      }
+
+      function displayVideoResult(data) {
+        const resultDiv = document.getElementById("videoResult");
+        let html = `
+          <div class="detection-result">
+            <div class="result-stats">
+              <div class="result-stat">
+                <div class="result-stat-value">${data.total_detections}</div>
+                <div class="result-stat-label">Tổng ổ gà</div>
+              </div>
+              <div class="result-stat">
+                <div class="result-stat-value">${data.frames.length}</div>
+                <div class="result-stat-label">Khung xử lý</div>
+              </div>
+              <div class="result-stat">
+                <div class="result-stat-value">${data.total_frames}</div>
+                <div class="result-stat-label">Tổng khung</div>
+              </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+              <h4 style="color: #667eea; margin-bottom: 15px;">📹 Khung hình phát hiện:</h4>
+              <div class="frame-gallery">
+                ${data.frames
+                  .map(
+                    (frame, idx) => `
+                  <div class="frame-thumbnail" onclick="showFrameDetail('${
+                    frame.frame
+                  }')">
+                    <img src="data:image/jpeg;base64,${
+                      frame.frame
+                    }" alt="Frame ${frame.frame_number}" />
+                    <div style="padding: 8px; background: #f9f9f9; text-align: center; font-size: 0.85em;">
+                      ${
+                        frame.detections.length > 0
+                          ? "✓ " + frame.detections.length
+                          : "Không có"
+                      }
+                    </div>
+                  </div>
+                `
+                  )
+                  .join("")}
+              </div>
+            </div>
+
+            <div class="frame-display" id="frameDisplay" style="display: none;">
+              <img id="frameDetailImg" src="" alt="Frame Detail" />
+            </div>
+          </div>
+        `;
+
+        resultDiv.innerHTML = html;
+      }
+
+      function showFrameDetail(frameBase64) {
+        const display = document.getElementById("frameDisplay");
+        const img = document.getElementById("frameDetailImg");
+        img.src = `data:image/jpeg;base64,${frameBase64}`;
+        display.style.display = "block";
+      }
+
+      // ==================== Webcam Functions ====================
+
+      async function startDetection() {
+        try {
+          const response = await fetch("/api/start", { method: "POST" });
+          const data = await response.json();
+
+          if (data.status === "success") {
+            isRunning = true;
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+            document.getElementById("loading").classList.add("show");
+            document.getElementById("statusIndicator").className =
+              "status-indicator status-active";
+            document.getElementById("statusText").textContent = "Đang chạy";
+
+            frameUpdateInterval = setInterval(updateFrame, 100);
+            statusCheckInterval = setInterval(updateStatus, 1000);
+
+            console.log("✅ Detection started");
+          } else {
+            alert("❌ " + data.message);
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          alert("❌ Lỗi kết nối server");
+        }
+      }
+
+      async function stopDetection() {
+        try {
+          const response = await fetch("/api/stop", { method: "POST" });
+          const data = await response.json();
+
+          if (data.status === "success") {
+            isRunning = false;
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+            document.getElementById("loading").classList.remove("show");
+            document.getElementById("frameDisplay").style.display = "none";
+            document.getElementById("statusIndicator").className =
+              "status-indicator status-inactive";
+            document.getElementById("statusText").textContent = "Đã tắt";
+
+            clearInterval(frameUpdateInterval);
+            clearInterval(statusCheckInterval);
+
+            console.log("✅ Detection stopped");
+          }
+        } catch (error) {
+          console.error("Error:", error);
+        }
+      }
+
+      async function updateFrame() {
+        try {
+          const response = await fetch("/api/frame");
+          if (response.status === 202) return;
+
+          const data = await response.json();
+
+          if (data.status === "success" && data.frame) {
+            document.getElementById("loading").classList.remove("show");
+            const frameDisplay = document.getElementById("frameDisplay");
+            frameDisplay.src = "data:image/jpeg;base64," + data.frame;
+            frameDisplay.style.display = "block";
+
+            document.getElementById("frameCount").textContent =
+              data.frame_count || 0;
+
+            if (data.detections && data.detections.length > 0) {
+              updateDetectionDisplay(data.detections);
+
+              if (data.detections.length > lastDetectionCount) {
+                showAlert();
+              }
+              lastDetectionCount = data.detections.length;
+            }
+          }
+        } catch (error) {
+          console.error("Error updating frame:", error);
+        }
+      }
+
+      async function updateStatus() {
+        try {
+          const response = await fetch("/api/status");
+          const data = await response.json();
+
+          if (data.detection_active) {
+            document.getElementById("potholeCount").textContent =
+              document.querySelectorAll(".detection-item").length;
+          }
+        } catch (error) {
+          console.error("Error updating status:", error);
+        }
+      }
+
+      function updateDetectionDisplay(detections) {
+        const list = document.getElementById("detectionList");
+
+        if (detections.length === 0) {
+          list.innerHTML =
+            '<div style="color: #999; text-align: center; padding: 20px;">Không phát hiện</div>';
+          return;
+        }
+
+        let html = "";
+        detections.forEach((det, idx) => {
+          html += `
+            <div class="detection-item">
+              <strong>#${idx + 1}</strong><br>
+              Độ tin cậy: ${(det.confidence * 100).toFixed(1)}%
+            </div>
+          `;
+        });
+
+        list.innerHTML = html;
+        document.getElementById("potholeCount").textContent = detections.length;
+      }
+
+      function showAlert() {
+        const alertBox = document.getElementById("alertBox");
+        alertBox.classList.add("show");
+        setTimeout(() => alertBox.classList.remove("show"), 3000);
+      }
+
+      async function updateConfidence() {
+        const value = document.getElementById("confidenceSlider").value;
+        document.getElementById("confidenceValue").textContent =
+          parseFloat(value).toFixed(2);
+
+        try {
+          await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ confidence: parseFloat(value) }),
+          });
+        } catch (error) {
+          console.error("Error updating confidence:", error);
+        }
+      }
+
+      async function updateDetectionEnabled() {
+        const enabled = document.getElementById("detectionToggle").checked;
+
+        try {
+          await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: enabled }),
+          });
+        } catch (error) {
+          console.error("Error updating detection toggle:", error);
+        }
+      }
+
+      async function updateAudioMode() {
+        const mode = document.getElementById("audioMode").value;
+
+        try {
+          const response = await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audio_mode: mode }),
+          });
+
+          const data = await response.json();
+
+          if (data.status === "success") {
+            let modeText = {
+              beep: "🔔 Beep",
+              mp3: "🎵 MP3",
+              off: "🔇 Tắt",
+            }[mode];
+            alert(`✅ Âm thanh: ${modeText}`);
+          } else {
+            alert(`❌ Lỗi: ${data.message}`);
+          }
+        } catch (error) {
+          console.error("Error updating audio mode:", error);
+          alert("❌ Lỗi kết nối");
+        }
+      }
+
+      // ==================== Initialize ====================
+
+      window.addEventListener("load", () => {
+        console.log("✅ Page loaded");
+        document.getElementById("startBtn").disabled = false;
+        document.getElementById("stopBtn").disabled = true;
+      });
+
+      window.addEventListener("beforeunload", () => {
+        if (isRunning) stopDetection();
+      });
+    </script>
+  </body>
+</html>
