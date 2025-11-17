@@ -399,3 +399,29 @@ button:disabled {
   border-radius: 10px;
   text-align: center;
 }
+
+.processed-video {
+  margin-top: 25px;
+}
+
+.processed-video-player {
+  width: 100%;
+  border-radius: 12px;
+  border: 2px solid #eee;
+  background: #000;
+}
+
+.processed-video .video-actions {
+  margin-top: 10px;
+  text-align: right;
+}
+
+.processed-video .video-actions a {
+  color: #667eea;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.processed-video .video-actions a:hover {
+  text-decoration: underline;
+}

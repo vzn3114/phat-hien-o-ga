@@ -25,8 +25,9 @@ class PotholeFilter:
         box_area = box_width * box_height
         frame_area = frame_width * frame_height
         
-        min_size = 20
-        max_size_ratio = 0.5
+        dynamic_min = max(12, int(min(frame_width, frame_height) * 0.01))
+        min_size = dynamic_min
+        max_size_ratio = 0.65
         
         if box_width < min_size or box_height < min_size:
             return False, "Too small"
@@ -35,19 +36,19 @@ class PotholeFilter:
             return False, "Too large"
         
         # Rule 3: Aspect Ratio
-        aspect_ratio = max(box_width, box_height) / min(box_width, box_height)
+        aspect_ratio = max(box_width, box_height) / max(1, min(box_width, box_height))
         
-        if aspect_ratio < 0.4 or aspect_ratio > 2.5:
+        if aspect_ratio < 0.25 or aspect_ratio > 3.5:
             return False, "Bad aspect ratio"
         
         # Rule 4: Position
         center_y = (y1 + y2) / 2
         y_ratio = center_y / frame_height
         
-        if y_ratio < 0.15:
+        if y_ratio < 0.1:
             return False, "In sky region"
         
-        if y_ratio > 0.95:
+        if y_ratio > 0.98:
             return False, "In hood region"
         
         return True, "Passed all filters"

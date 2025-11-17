@@ -403,6 +403,24 @@
               </div>
             </div>
 
+            ${
+              data.processed_video_url
+                ? `
+            <div class="processed-video">
+              <h4 style="color: #667eea; margin-bottom: 10px;">🎞️ Video đã xử lý:</h4>
+              <video controls class="processed-video-player" preload="metadata">
+                <source src="${data.processed_video_url}" type="video/mp4">
+                Trình duyệt của bạn không hỗ trợ phát video HTML5.
+              </video>
+              <div class="video-actions">
+                <a href="${data.processed_video_url}" download="${
+                    data.processed_video_filename || "processed.mp4"
+                  }">⬇️ Tải video</a>
+              </div>
+            </div>`
+                : ""
+            }
+
             <div style="margin-top: 20px;">
               <h4 style="color: #667eea; margin-bottom: 15px;">📹 Khung hình phát hiện:</h4>
               <div class="frame-gallery">
