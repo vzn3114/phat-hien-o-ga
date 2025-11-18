@@ -1,0 +1,41 @@
+# --- 1. Bỏ qua file chạy và file nén (RẤT QUAN TRỌNG) ---
+*.exe
+*.zip
+*.rar
+*.pyz
+*.pkg
+
+# --- 2. Bỏ qua thư mục Build của PyInstaller (Nguồn gốc lỗi) ---
+/build/
+/dist/
+*.spec
+
+# --- 3. Bỏ qua File trọng số AI/Model (Rất nặng) ---
+# Những file này thường > 100MB, không được push lên
+*.pt
+*.onnx
+
+# --- 4. Bỏ qua File Media nặng (Video, Nhạc) ---
+*.mp4
+*.avi
+*.mp3
+*.wav
+# Nếu bạn muốn giữ ảnh test thì bỏ dòng *.jpg, còn không thì thêm vào:
+# *.jpg
+# *.png
+
+# --- 5. Bỏ qua dữ liệu Training/Kết quả của YOLO ---
+/runs/
+/results/
+/train/
+/valid/
+/test/
+/vis/
+/wandb/
+
+# --- 6. File rác của Python và Editor ---
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+.env

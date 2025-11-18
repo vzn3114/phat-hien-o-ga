@@ -25,7 +25,7 @@ pip install -r requirements.txt
 
 ### Bước 2: Chạy Ứng Dụng
 
-**Chọn một trong 2 cách:**
+**Chọn một trong 3 cách:**
 
 ####  **Cách 1: Giao Diện Web**
 
@@ -40,6 +40,14 @@ Mở trình duyệt → **http://localhost:5000**
 ```bash
 python detect_realtime.py
 ```
+
+#### 🖥️ **Cách 3: Ứng Dụng Desktop (pywebview)**
+
+```bash
+python desktop_app.py
+```
+
+Cửa sổ ứng dụng mở trực tiếp, không cần thao tác với trình duyệt.
 
 ### Bước 3: Sử Dụng
 
@@ -218,6 +226,53 @@ app.run(debug=False, host='0.0.0.0', port=5000)
 # Trên điện thoại truy cập:
 # http://<IP_máy_tính>:5000
 ```
+
+
+---
+
+## 🖥️ Đóng Gói Ứng Dụng Desktop (pywebview)
+
+`desktop_app.py` đã tích hợp pywebview để mở giao diện giống ứng dụng Windows thực thụ.
+
+### 1. Cài phụ thuộc
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Chạy thử app desktop
+
+```bash
+python desktop_app.py
+```
+
+- Flask + YOLO chạy trên background thread.
+- pywebview hiển thị cửa sổ trỏ tới `http://127.0.0.1:5000/`.
+- Đóng cửa sổ là tắt toàn bộ tiến trình.
+
+### 3. Build bản phát hành bằng PyInstaller
+
+```bash
+# (khuyến nghị) Xoá build cũ để tránh lỗi file bị khoá
+python scripts/cleanup_build.py
+
+pyinstaller --noconfirm --clean pothole_app.spec
+```
+
+- Output: `dist/pothole_app/` (onedir). Copy hoặc nén toàn bộ thư mục để phát hành.
+- Muốn 1 file duy nhất → mở `pothole_app.spec`, thêm `onefile=True` trong phần `EXE(...)`.
+
+### 4. Dọn dẹp sau khi build
+
+- Script nhanh: `python scripts/cleanup_build.py`
+
+```powershell
+Remove-Item -Recurse -Force build, dist
+```
+
+Script còn xoá `__pycache__`, giữ repo gọn gàng và tránh commit nhầm các file build.
 
 
 ## 🎓 Kiến Thức Kỹ Thuật

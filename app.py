@@ -5,10 +5,13 @@ Flask Web App for Real-time Pothole Detection
 import cv2
 import glob
 import os
+import mimetypes
+import re
+import sys
 import threading
 import numpy as np
 from ultralytics import YOLO
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory, url_for, Response
 import base64
 from io import BytesIO
 import pygame
@@ -17,19 +20,92 @@ from pothole_filter import PotholeFilter
 from werkzeug.utils import secure_filename
 import uuid
 
-app = Flask(__name__)
+def resource_path(*paths):
+    """Get absolute path to resource, works for dev and PyInstaller"""
+    if hasattr(sys, '_MEIPASS'):
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, *paths)
+
+
+BASE_DIR = resource_path()
+
+app = Flask(
+    __name__,
+    template_folder=resource_path('templates'),
+    static_folder=resource_path('static')
+)
 
 # ==============================
 # Configuration
 # ==============================
-UPLOAD_FOLDER = 'uploads'
+UPLOAD_FOLDER = resource_path('uploads')
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp', 'gif', 'tiff'}
 ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'avi', 'mov', 'mkv', 'webm', 'flv'}
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500 MB
+MODEL_IOU_THRESHOLD = 0.35  # Lower IOU keeps overlapping pothole boxes
+MAX_PREVIEW_FRAMES = 150
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
+
+@app.route('/uploads/<path:filename>')
+def serve_upload(filename):
+    """Serve uploaded and processed media files with proper mimetype."""
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(file_path):
+        return jsonify({"error": "File not found"}), 404
+    
+    mime_type = mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+    file_size = os.path.getsize(file_path)
+    range_header = request.headers.get('Range', None)
+    
+    if range_header:
+        range_match = re.match(r'bytes=(\d*)-(\d*)', range_header)
+        if range_match:
+            start_str, end_str = range_match.groups()
+            try:
+                byte1 = int(start_str) if start_str else 0
+                byte2 = int(end_str) if end_str else file_size - 1
+            except ValueError:
+                byte1, byte2 = 0, file_size - 1
+            
+            byte2 = min(byte2, file_size - 1)
+            if byte1 >= file_size or byte1 > byte2:
+                return Response(status=416)
+            
+            length = byte2 - byte1 + 1
+            
+            def generate():
+                with open(file_path, 'rb') as f:
+                    f.seek(byte1)
+                    remaining = length
+                    chunk_size = 8192
+                    while remaining > 0:
+                        chunk = f.read(min(chunk_size, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+            
+            rv = Response(generate(), 206, mimetype=mime_type, direct_passthrough=True)
+            rv.headers.add('Content-Range', f'bytes {byte1}-{byte2}/{file_size}')
+            rv.headers.add('Accept-Ranges', 'bytes')
+            rv.headers.add('Content-Length', str(length))
+            return rv
+    
+    response = send_from_directory(
+        app.config['UPLOAD_FOLDER'],
+        filename,
+        mimetype=mime_type,
+        as_attachment=False,
+        conditional=True
+    )
+    response.headers.add('Accept-Ranges', 'bytes')
+    response.headers.add('Content-Length', str(file_size))
+    return response
 
 # ==============================
 # Global Variables
@@ -37,6 +113,7 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 detection_active = False
 webcam_source = 0  # Default: built-in webcam
 confidence_threshold = 0.5
+filter_confidence_floor = 0.35
 model = None
 latest_detections = []
 frame_count = 0
@@ -50,7 +127,10 @@ sound_object = None  # Store pygame sound object
 def load_model():
     global model
     try:
-        weight_paths = glob.glob("runs/detect/**/weights/best.pt", recursive=True)
+        weight_paths = glob.glob(
+            os.path.join(BASE_DIR, "runs", "detect", "**", "weights", "best.pt"),
+            recursive=True
+        )
         if not weight_paths:
             raise FileNotFoundError("❌ Không tìm thấy file best.pt")
         
@@ -79,8 +159,9 @@ def load_mp3_sound():
     """Load MP3 alert sound"""
     global sound_object
     try:
-        if os.path.exists("canhbao.mp3"):
-            sound_object = pygame.mixer.Sound("canhbao.mp3")
+        sound_path = resource_path("canhbao.mp3")
+        if os.path.exists(sound_path):
+            sound_object = pygame.mixer.Sound(sound_path)
             print("✅ MP3 sound loaded: canhbao.mp3")
             return True
         else:
@@ -159,6 +240,11 @@ def preprocess_frame(frame):
     beta = 30    # Brightness
     frame = cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
     
+    # Reduce sensor noise and sharpen road texture
+    frame = cv2.GaussianBlur(frame, (3, 3), 0)
+    sharpen = cv2.addWeighted(frame, 1.5, cv2.GaussianBlur(frame, (0, 0), 3), -0.5, 0)
+    frame = cv2.addWeighted(frame, 0.8, sharpen, 0.2, 0)
+    
     # Adaptive histogram equalization
     lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
@@ -168,6 +254,10 @@ def preprocess_frame(frame):
     frame = cv2.cvtColor(frame, cv2.COLOR_LAB2BGR)
     
     return frame
+
+def get_filter_confidence():
+    """Lower filtering confidence slightly to retain hard potholes"""
+    return max(filter_confidence_floor, confidence_threshold - 0.05)
 
 def detection_loop():
     """Background detection thread - IMPROVED"""
@@ -209,7 +299,12 @@ def detection_loop():
             frame_processed = preprocess_frame(frame)
             
             # Run inference
-            results = model(frame_processed, verbose=False, conf=confidence_threshold)
+            results = model(
+                frame_processed,
+                verbose=False,
+                conf=confidence_threshold,
+                iou=MODEL_IOU_THRESHOLD
+            )
             
             detected = False
             detections_list = []
@@ -221,7 +316,7 @@ def detection_loop():
                     
                     # Apply advanced filtering to remove false positives
                     filtered_boxes, filtered_confs, filter_reasons = PotholeFilter.filter_detections(
-                        boxes, confs, display_frame.shape, min_confidence=0.45
+                        boxes, confs, display_frame.shape, min_confidence=get_filter_confidence()
                     )
                     
                     for box, conf in zip(filtered_boxes, filtered_confs):
@@ -391,7 +486,7 @@ def detect_in_image(image_path, min_confidence=0.45):
         frame_processed = preprocess_frame(frame)
         
         # Run inference
-        results = model(frame_processed, verbose=False, conf=confidence_threshold)
+        results = model(frame_processed, verbose=False, conf=confidence_threshold, iou=MODEL_IOU_THRESHOLD)
         
         display_frame = frame.copy()
         detections_list = []
@@ -403,7 +498,7 @@ def detect_in_image(image_path, min_confidence=0.45):
                 
                 # Apply filter
                 filtered_boxes, filtered_confs, _ = PotholeFilter.filter_detections(
-                    boxes, confs, display_frame.shape, min_confidence=0.45
+                    boxes, confs, display_frame.shape, min_confidence=get_filter_confidence()
                 )
                 
                 for box, conf in zip(filtered_boxes, filtered_confs):
@@ -433,16 +528,27 @@ def detect_in_image(image_path, min_confidence=0.45):
         return None, []
 
 def detect_in_video(video_path, min_confidence=0.45):
-    """Detect potholes in video and return frames"""
+    """Detect potholes in video, return preview frames and save processed video"""
+    cap = None
+    writer = None
+    processed_filename = f"{uuid.uuid4()}_processed.mp4"
+    processed_filepath = os.path.join(app.config['UPLOAD_FOLDER'], processed_filename)
+    
     try:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             return None
         
         fps = cap.get(cv2.CAP_PROP_FPS)
+        fps = fps if fps and fps > 0 else 30.0
+        
         frame_count = 0
         detection_frames = []
         all_detections = []
+        
+        frame_width = None
+        frame_height = None
+        codec_used = None
         
         while True:
             ret, frame = cap.read()
@@ -451,15 +557,33 @@ def detect_in_video(video_path, min_confidence=0.45):
             
             frame_count += 1
             
-            # Skip frames to speed up (process every 5 frames)
-            if frame_count % 5 != 0:
-                continue
+            if writer is None:
+                height, width = frame.shape[:2]
+                if width == 0 or height == 0:
+                    print("⚠️  Invalid frame size, aborting video processing")
+                    return None
+                
+                frame_width, frame_height = width, height
+                
+                preferred_codecs = ['avc1', 'H264', 'mp4v']
+                for codec in preferred_codecs:
+                    fourcc = cv2.VideoWriter_fourcc(*codec)
+                    temp_writer = cv2.VideoWriter(processed_filepath, fourcc, fps, (width, height))
+                    if temp_writer.isOpened():
+                        writer = temp_writer
+                        codec_used = codec
+                        print(f"🎞️ Processed video codec: {codec}")
+                        break
+                
+                if writer is None:
+                    print("⚠️  Cannot open video writer with supported codecs")
+                    return None
             
             # Preprocess frame
             frame_processed = preprocess_frame(frame)
             
             # Run inference
-            results = model(frame_processed, verbose=False, conf=confidence_threshold)
+            results = model(frame_processed, verbose=False, conf=confidence_threshold, iou=MODEL_IOU_THRESHOLD)
             
             display_frame = frame.copy()
             detections_list = []
@@ -471,7 +595,7 @@ def detect_in_video(video_path, min_confidence=0.45):
                     
                     # Apply filter
                     filtered_boxes, filtered_confs, _ = PotholeFilter.filter_detections(
-                        boxes, confs, display_frame.shape, min_confidence=0.45
+                        boxes, confs, display_frame.shape, min_confidence=get_filter_confidence()
                     )
                     
                     for box, conf in zip(filtered_boxes, filtered_confs):
@@ -494,34 +618,46 @@ def detect_in_video(video_path, min_confidence=0.45):
             cv2.putText(display_frame, f"Frame: {frame_count}", (10, 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
-            # Encode to base64
+            # Write processed frame to video
+            writer.write(display_frame)
+            
+            # Encode to base64 for preview gallery
             _, buffer = cv2.imencode('.jpg', display_frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
             frame_b64 = base64.b64encode(buffer).decode()
             
-            detection_frames.append({
-                "frame": frame_b64,
-                "frame_number": frame_count,
-                "detections": detections_list
-            })
+            if len(detection_frames) < MAX_PREVIEW_FRAMES:
+                detection_frames.append({
+                    "frame": frame_b64,
+                    "frame_number": frame_count,
+                    "detections": detections_list
+                })
             
             all_detections.extend(detections_list)
-            
-            # Limit frames
-            if len(detection_frames) >= 100:
-                break
         
-        cap.release()
+        if frame_count == 0 or writer is None:
+            if os.path.exists(processed_filepath):
+                os.remove(processed_filepath)
+            return None
         
         return {
             "frames": detection_frames,
             "total_detections": len(all_detections),
             "total_frames": frame_count,
-            "fps": fps
+            "fps": fps,
+            "processed_video_filename": processed_filename
         }
     
     except Exception as e:
         print(f"❌ Video detection error: {e}")
+        if os.path.exists(processed_filepath):
+            os.remove(processed_filepath)
         return None
+    
+    finally:
+        if cap is not None:
+            cap.release()
+        if writer is not None:
+            writer.release()
 
 @app.route('/api/detect/image', methods=['POST'])
 def detect_image():
@@ -602,12 +738,16 @@ def detect_video():
         if result["total_detections"] > 0:
             play_alert()
         
+        processed_video_url = url_for('serve_upload', filename=result["processed_video_filename"])
+        
         return jsonify({
             "status": "success",
             "frames": result["frames"],
             "total_detections": result["total_detections"],
             "total_frames": result["total_frames"],
-            "fps": result["fps"]
+            "fps": result["fps"],
+            "processed_video_url": processed_video_url,
+            "processed_video_filename": result["processed_video_filename"]
         }), 200
     
     except Exception as e:
